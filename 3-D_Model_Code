@@ -1,6 +1,11 @@
+<DOCTYPE = HTML>
+<head></head>
 <body></body>
 <script src="http://gamingJS.com/Three.js"></script>
+<script src="http://gamingJS.com/Tween.js"></script>
 <script src="http://gamingJS.com/ChromeFixes.js"></script>
+<script src="http://gamingJS.com/Scoreboard.js"></script>
+<script src="http://gamingJS.com/Sounds.js"></script>
 <script>
   // This is where stuff in our game will happen:
   var scene = new THREE.Scene();
@@ -17,8 +22,27 @@
   document.body.appendChild(renderer.domElement);
 
   // ******** START CODING ON THE NEXT LINE ******** 
+  var not_allowed = [];
+  
+  var scoreboard = new Scoreboard();
+  scoreboard.countdown(45);
+  scoreboard.score();
+  scoreboard.help(
+    'Arrow keys to move. ' +
+    'Space bar to jump for fruit. ' +
+    'Watch for shaking trees with fruit. ' +
+    'Get near the tree and jump before the fruit is gone!'
+    );
+    
+    var game_over = false;
+    scoreboard.onTimeExpired(function() {
+      scoreboard.message("Game Over!");
+      game_over = true;
+      });
+  
   var marker = new THREE.Object3D();
   scene.add(marker);
+  
   var cover = new THREE.MeshNormalMaterial();
   var body = new THREE.SphereGeometry(80);
   var avatar = new THREE.Mesh(body, cover);
@@ -51,18 +75,12 @@
   marker.add(camera);
   
   // trees
-  makeTreeAt( 500, 0);
-  makeTreeAt( -500, 0);
-  makeTreeAt( 750, -1000);
-  makeTreeAt( -750, -1000);
-  makeTreeAt(1000, -2000);
-  makeTreeAt(-1000, -2000);
-  makeTreeAt(1250, -3000);
-  makeTreeAt(-1250, -3000);
-  makeTreeAt(1500, -4000);
-  makeTreeAt(-1500, -4000);
-  makeTreeAt(1750, -5000);
-  makeTreeAt(-1750, -5000);
+  var tree_with_treasure;
+  var trees = [];
+  trees.push(makeTreeAt( 500, 0));
+  trees.push(makeTreeAt( -500, 0));
+  trees.push(makeTreeAt(750, -1000));
+  trees.push(makeTreeAt(-750, -1000));
   
   function makeTreeAt(x, z){
     var trunk = new THREE.Mesh(
@@ -77,14 +95,44 @@
     top.position.y = 175;
     trunk.add(top);
     
+    var boundary = new THREE.Mesh(
+      new THREE.CircleGeometry(300),
+      new THREE.MeshNormalMaterial()
+      );
+    boundary.position.y = -100;
+    boundary.rotation.x = -Math.PI/2;
+    trunk.add(boundary);
+    
+    not_allowed.push(boundary);
+    
     trunk.position.set(x, -75, z);
     scene.add(trunk);
+    return top;
   }
+  
+  function shakeTree() {
+    tree_with_treasure = Math.floor(Math.random() * trees.length);
+    
+    new TWEEN
+      .Tween({x: 0})
+      .to({x: 2*Math.PI}, 200)
+      .repeat(20)
+      .onUpdate(function () {
+        trees[tree_with_treasure].position.x = 75 * Math.sin(this.x);
+      })
+      .start();
+      
+      setTimeout(shakeTree, 12*1000);
+  }
+  shakeTree();
+  
   // Now, show what the camera sees on the screen:
   var clock = new THREE.Clock(true);
   function animate(){
     requestAnimationFrame(animate);
+    TWEEN.update();
     walk();
+    turn();
     acrobatics();
     renderer.render(scene, camera);
   }
@@ -92,14 +140,35 @@
   animate();
   
   function walk() {
-    if (is_walking()) return;
+    if (!is_walking()) return;
     var position = Math.sin(clock.getElapsedTime()*10) * 100;
     right_hand.position.z = position;
     left_hand.position.z = -position;
-    right_foot.position.z = position;
-    left_foot.position.z = -position;
+    right_foot.position.z =-position;
+    left_foot.position.z = position;
     
   }
+  
+  function turn(){
+    var direction = 0;
+    if (is_moving_forward) direction = Math.PI;
+    if (is_moving_back) direction = 0;
+    if (is_moving_right) direction = Math.PI/2;
+    if (is_moving_left) direction = -Math.PI/2;
+    
+    spinAvatar(direction);
+  }
+  
+  function spinAvatar(direction){
+    new TWEEN
+    .Tween({y: avatar.rotation.y})
+    .to({y: direction}, 50)
+    .onUpdate(function () {
+      avatar.rotation.y = this.y;
+    })
+    .start();
+  }
+  
   var is_cartwheeling = false;
   var is_flipping = false;
   function acrobatics(){
@@ -111,7 +180,7 @@
     }
   }
   
-  var is_moving_right, is_moving_left, is_moving_forward, is_moving_back;
+  var is_moving_left, is_moving_right, is_moving_forward, is_moving_back;
   function is_walking(){
     if (is_moving_right) return true;
     if (is_moving_left) return true;
@@ -121,6 +190,7 @@
   }
     document.addEventListener('keydown', function(event){
       var code = event.keyCode;
+      if (code == 32) jump();                    //jump
       
       if (code == 37){ 
         marker.position.x = marker.position.x-5; //left
@@ -141,14 +211,100 @@
       if (code == 67) is_cartwheeling = !is_cartwheeling; //c
       if (code == 70) is_flipping = !is_flipping; //f
       
-    });
+      if (detectCollisions()) {
+        if (is_moving_left) marker.position.x = marker.position.x+5;
+        if (is_moving_right) marker.position.x = marker.position.x-5;
+        if (is_moving_forward) marker.position.z = marker.position.z+5;
+        if (is_moving_back) marker.position.z = marker.position.z-5;
+      }
+  });
     
     document.addEventListener('keyup', function(event) {
       var code = event.keyCode;
       
-      if (code==37) is_moving_left = false;
-      if (code==38) is_moving_forward = false;
-      if (code==39) is_moving_right = false;
-      if (code==40) is_moving_back = false;
+      if (code == 37) is_moving_left = false;
+      if (code == 38) is_moving_forward = false;
+      if (code == 39) is_moving_right = false;
+      if (code == 40) is_moving_back = false;
     });
+    
+    function detectCollisions() {
+      var vector = new THREE.Vector3(0, -1, 0);
+      var ray = new THREE.Ray(marker.position, vector);
+      var intersects = ray.intersectObjects(not_allowed);
+      if (intersects.length > 0) return true;
+      return false;
+    }
+    
+    function jump() {
+      checkForTreasure();
+      animateJump();
+    }
+      
+    function checkForTreasure() {
+      if (tree_with_treasure == undefined) return;
+      
+      var treasure_tree = trees[tree_with_treasure],
+          p1 = treasure_tree.parent.position,
+          p2 = marker.position;
+          
+      var distance = Math.sqrt(
+        (p1.x - p2.x) * (p1.x - p2.x) +
+        (p1.z - p2.z) * (p1.z - p2.z)
+        );
+        
+        if (distance < 500) {
+          scorePoints();
+        }
+    }
+    function scorePoints() {
+      if (scoreboard.getTimeRemaining() === 0) return;
+      scoreboard.addPoints(10);
+      Sounds.bubble.play();
+      animateFruit();
+    }
+    
+    var fruit;
+    function animateFruit() {
+      if (fruit) return;
+      
+      fruit = new THREE.Mesh(
+        new THREE.CylinderGeometry(25, 25, 5, 25),
+        new THREE.MeshBasicMaterial({color: 0xFFD700})
+        );
+        fruit.rotation.x = Math.PI/2;
+        
+        marker.add(fruit);
+        
+        new TWEEN.
+        Tween({
+          height: 150,
+          spin: 0
+        }).
+        to({
+          height: 250,
+          spin: 4
+        }, 500).
+        onUpdate(function() {
+          fruit.position.y = this.height;
+          fruit.rotation.z = this.spin;
+          fruit = undefined;
+        }).
+        onComplete(function() {
+	        marker.remove(fruit);
+	        fruit = undefined;
+	   });
+        
+    	start();
+    }
+    
+    function animateJump() {
+      new TWEEN
+      .Tween({jump: 0})
+      .to({jump: Math.PI}, 500)
+      .onUpdate(function () {
+        marker.position.y = 200* Math.sin(this.jump);
+      })
+      .start();
+    }
     </script>
